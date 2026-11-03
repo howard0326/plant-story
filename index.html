@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>植物故事 · 一株植物的读法</title>
+<!--
+  植物故事 · 面客端原型（单文件，零外部依赖）
+  ---------------------------------------------------------
+  设计契约（Herbarium / 植物志基调）
+  · 色彩：纸底 + 墨字 + 墨绿强调 + 砖红印章，全站仅此一套变量
+  · 字体：系统衬线（标题/故事）+ 系统黑体（界面）+ Georgia 斜体（拉丁学名）
+          —— 刻意不用 Inter / Roboto，不加载任何外部字体
+  · 形状：圆角 2px / 4px 两档；1px 描边；不用多层阴影
+  · 间距：4/8/12/16/24/32/48/64
+  · 动效：160–240ms，只做三处（视图淡入、卡片 hover、物候带展开）
+  · 禁止：渐变、圆角>4px、emoji 图标、纯白底、三栏"我们的优势"式排版
+-->
+<style>
+/* ---------- 设计变量（唯一色彩来源，禁止硬编码颜色） ---------- */
+:root{
+  --ink:#1A1A1A;
+  --ink-soft:#4A4A45;
+  --paper:#F5F1E8;
+  --paper-2:#EDE6D6;
+  --line:#D8CFB8;
+  --moss:#1F3D2B;
+  --moss-2:#4A6B4F;
+  --seal:#A63D2F;
+
+  --f-serif:"Songti SC","STSong","SimSun","Noto Serif CJK SC",serif;
+  --f-sans:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Hiragino Sans GB",sans-serif;
+  --f-latin:Georgia,"Times New Roman","Songti SC",serif;
+
+  --ease:cubic-bezier(.2,.7,.3,1);
+  --wrap:1200px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+html{ -webkit-text-size-adjust:100%; }
+
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--f-sans);
+  font-size:14px;
+  font-weight:400;
+  line-height:1.75;
+  letter-spacing:.01em;
+  overflow-x:hidden;      /* 兜底：任何子元素都不把页面撑出横向滚动 */
+}
+img,svg{ max-width:100%; }
+
+/* 焦点可见（WCAG：键盘用户必须看得见） */
+:focus-visible{
+  outline:2px solid var(--moss);
+  outline-offset:2px;
+  border-radius:2px;
+}
+
+.wrap{
+  max-width:var(--wrap);
+  margin:0 auto;
+  padding:0 24px;
+}
+
+/* ---------- 顶栏 ---------- */
+.site-head{
+  border-bottom:1px solid var(--line);
+  background:var(--paper);
+}
+.head-inner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:24px;
+  padding-top:16px;
+  padding-bottom:16px;
+  flex-wrap:wrap;
+}
+.brand{
+  display:flex;
+  align-items:baseline;
+  gap:12px;
+  background:none;
+  border:0;
+  padding:0;
+  cursor:pointer;
+  color:var(--ink);
+}
+.brand-mark{ flex:0 0 auto; color:var(--moss); display:flex; align-items:center; }
+.brand-cn{
+  font-family:var(--f-serif);
+  font-size:20px;
+  font-weight:600;
+  letter-spacing:.08em;
+}
+.brand-en{
+  font-family:var(--f-latin);
+  font-size:12px;
+  letter-spacing:.2em;
+  color:var(--ink-soft);
+  text-transform:uppercase;
+}
+.head-nav{ display:flex; gap:24px; align-items:center; }
+.navlink{
+  background:none;border:0;padding:4px 0;cursor:pointer;
+  font-family:var(--f-sans);font-size:14px;color:var(--ink-soft);
+  border-bottom:1px solid transparent;
+  transition:color 200ms var(--ease), border-color 200ms var(--ease);
+}
+.navlink:hover{ color:var(--moss); border-bottom-color:var(--moss); }
+.navlink[aria-current="page"]{ color:var(--ink); border-bottom-color:var(--ink); }
+
+.head-search{ flex:1 1 240px; max-width:320px; min-width:0; }
+.head-search input{ width:100%; }
+
+/* ---------- 输入 ---------- */
+input[type="search"],input[type="text"]{
+  font-family:var(--f-sans);
+  font-size:14px;
+  color:var(--ink);
+  background:var(--paper-2);
+  border:1px solid var(--line);
+  border-radius:2px;
+  padding:8px 12px;
+  line-height:1.5;
+  transition:border-color 200ms var(--ease), background-color 200ms var(--ease);
+  width:100%;
+}
+input[type="search"]::placeholder{ color:var(--ink-soft); opacity:.75; }
+input[type="search"]:hover{ border-color:var(--moss-2); }
+input[type="search"]:focus{ background:var(--paper); border-color:var(--moss); }
+
+/* ---------- 主区 ---------- */
+main{ padding:48px 0 64px; min-height:60vh; }
+/* 首屏不淡入（避免慢设备/截图时"半透明"），只有切换视图时才淡入 */
+.view{ animation:none; }
+body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
+@keyframes fadeUp{
+  from{ opacity:0; transform:translateY(6px); }
+  to{ opacity:1; transform:none; }
+}
+/* 尊重"减少动态"偏好：动画关闭，内容直接可见 */
+@media (prefers-reduced-motion: reduce){
+  .view, .tabpanel{ animation:none; }
+  .pheno-track i{ animation:none; }
+  *{ transition-duration:1ms !important; }
+}
+
+/* ---------- 首页 · 题记 ---------- */
+.hero{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:32px;
+  align-items:end;
+  padding-bottom:48px;
+  border-bottom:1px solid var(--line);
+  margin-bottom:48px;
+}
+.hero-art{ display:flex; justify-content:flex-end; color:var(--moss-2); order:-1; }
+.hero-art svg{ width:180px; height:auto; }
+@media(min-width:768px){
+  .hero{ grid-template-columns:1.5fr 1fr; align-items:center; }
+  .hero-art{ order:0; }
+  .hero-art svg{ width:220px; }
+  .hero h1{ font-size:40px; }
+}
+.hero-kicker{
+  font-family:var(--f-sans); font-size:12px; letter-spacing:.22em;
+  color:var(--ink-soft); text-transform:uppercase; margin-bottom:16px;
+}
+.hero h1{
+  font-family:var(--f-serif);
+  font-size:28px;
+  font-weight:600;
+  line-height:1.25;
+  letter-spacing:.02em;
+  max-width:22em;
+}
+.hero h1 em{
+  font-style:normal;
+  border-bottom:1px solid var(--moss);
+  padding-bottom:2px;
+}
+.hero-lede{
+  margin-top:16px;
+  max-width:34em;
+  color:var(--ink-soft);
+}
+
+/* ---------- 区块标题 ---------- */
+.sec{ margin-bottom:48px; }
+.sec-head{
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap:16px; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:24px;
+  flex-wrap:wrap;
+}
+.sec-title{
+  font-family:var(--f-serif); font-size:20px; font-weight:600; letter-spacing:.04em;
+}
+.sec-note{ font-size:12px; color:var(--ink-soft); letter-spacing:.06em; }
+.sec-more{
+  background:none;border:0;padding:0;cursor:pointer;
+  font-family:var(--f-sans);font-size:13px;color:var(--moss);
+  border-bottom:1px solid var(--moss); line-height:1.2;
+  transition:opacity 200ms var(--ease);
+}
+.sec-more:hover{ opacity:.7; }
+
+/* ---------- 网格 ---------- */
+.grid{ display:grid; grid-template-columns:1fr; gap:24px; }
+@media(min-width:640px){ .grid{ grid-template-columns:1fr 1fr; } }
+@media(min-width:1024px){ .grid{ grid-template-columns:repeat(3,1fr); } }
+
+/* ---------- 植物卡 ---------- */
+.pcard{
+  display:flex; flex-direction:column;
+  background:var(--paper-2);
+  border:1px solid var(--line);
+  border-radius:4px;
+  padding:0;
+  overflow:hidden;
+  cursor:pointer;
+  text-align:left;
+  color:var(--ink);
+  font-family:inherit;
+  min-width:0;
+  transition:transform 200ms var(--ease), border-color 200ms var(--ease);
+}
+.pcard:hover{ transform:translateY(-2px); border-color:var(--moss-2); }
+.pcard-art{
+  display:flex; align-items:center; justify-content:center;
+  padding:24px;
+  border-bottom:1px solid var(--line);
+  color:var(--moss-2);
+  background:var(--paper);
+}
+.pcard-art svg{ width:96px; height:96px; }
+.pcard-body{ padding:16px 16px 24px; }
+.pcard-no{
+  font-family:var(--f-latin); font-size:12px; letter-spacing:.16em;
+  color:var(--ink-soft); margin-bottom:8px;
+}
+.pcard h3{
+  font-family:var(--f-serif); font-size:20px; font-weight:600; line-height:1.25;
+}
+.pcard .latin{
+  font-family:var(--f-latin); font-style:italic; font-size:13px;
+  color:var(--ink-soft); margin-top:4px;
+  overflow-wrap:anywhere; word-break:break-word;
+}
+.pcard .hook{
+  font-size:13px; color:var(--ink-soft); margin-top:12px;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.tagline{ margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; }
+.tag{
+  font-size:12px; letter-spacing:.06em;
+  color:var(--moss); border:1px solid var(--moss-2);
+  border-radius:2px; padding:0 8px; line-height:1.6;
+  background:transparent;
+}
+.tag.seal{ color:var(--seal); border-color:var(--seal); }
+
+/* ---------- 园区卡 ---------- */
+.parkcard{
+  display:flex; gap:16px; align-items:flex-start;
+  background:transparent; border:1px solid var(--line); border-radius:4px;
+  padding:24px; text-align:left; cursor:pointer; color:var(--ink); font-family:inherit;
+  transition:border-color 200ms var(--ease), transform 200ms var(--ease);
+}
+.parkcard:hover{ border-color:var(--moss-2); transform:translateY(-2px); }
+.parkcard-art{ color:var(--moss-2); flex:0 0 auto; }
+.parkcard h3{ font-family:var(--f-serif); font-size:16px; font-weight:600; }
+.parkcard p{ font-size:13px; color:var(--ink-soft); margin-top:4px; }
+
+/* ---------- 筛选条 ---------- */
+.filters{
+  display:flex; gap:8px; flex-wrap:wrap; margin:24px 0 32px;
+  padding-bottom:16px; border-bottom:1px solid var(--line);
+}
+.chip{
+  font-family:inherit; font-size:13px; cursor:pointer;
+  background:transparent; color:var(--ink-soft);
+  border:1px solid var(--line); border-radius:2px;
+  padding:4px 12px; line-height:1.9;
+  transition:color 200ms var(--ease), border-color 200ms var(--ease), background-color 200ms var(--ease);
+}
+.chip:hover{ color:var(--moss); border-color:var(--moss-2); }
+.chip[aria-pressed="true"]{
+  color:var(--paper); background:var(--moss); border-color:var(--moss);
+}
+
+/* ---------- 详情 ---------- */
+.detail-head{
+  display:grid; grid-template-columns:1fr; gap:24px;
+  padding-bottom:32px; border-bottom:1px solid var(--line); margin-bottom:32px;
+}
+@media(min-width:768px){
+  .detail-head{ grid-template-columns:1.4fr 1fr; align-items:center; }
+}
+.breadcrumb{
+  background:none;border:0;padding:0;cursor:pointer;color:var(--ink-soft);
+  font-family:inherit; font-size:13px; margin-bottom:24px;
+  border-bottom:1px solid var(--line);
+}
+.breadcrumb:hover{ color:var(--moss); border-bottom-color:var(--moss); }
+.detail-no{
+  font-family:var(--f-latin); font-size:13px; letter-spacing:.2em; color:var(--ink-soft);
+  margin-bottom:8px;
+}
+.detail-head h1{
+  font-family:var(--f-serif); font-size:40px; font-weight:600; line-height:1.25; letter-spacing:.02em;
+}
+.detail-head .latin{
+  font-family:var(--f-latin); font-style:italic; font-size:20px; color:var(--ink-soft); margin-top:8px;
+}
+.detail-head .lede{ margin-top:16px; max-width:32em; color:var(--ink-soft); }
+.detail-art{ display:flex; justify-content:center; color:var(--moss-2); }
+.detail-art svg{ width:180px; height:180px; }
+
+/* 基础信息表（像标本标签） */
+.facts{
+  display:grid; grid-template-columns:1fr; gap:0;
+  border:1px solid var(--line); border-radius:4px; overflow:hidden;
+  margin-bottom:32px;
+}
+@media(min-width:640px){ .facts{ grid-template-columns:1fr 1fr; } }
+@media(min-width:1024px){ .facts{ grid-template-columns:repeat(4,1fr); } }
+.fact{ padding:16px; border-bottom:1px solid var(--line); }
+@media(min-width:640px){ .fact{ border-right:1px solid var(--line); } }
+.fact dt{ font-size:12px; letter-spacing:.14em; color:var(--ink-soft); }
+.fact dd{ font-size:14px; margin-top:4px; }
+
+/* 物候条 */
+.pheno{
+  border:1px solid var(--line); border-radius:4px; padding:16px 16px 8px;
+  margin-bottom:32px; background:var(--paper-2);
+}
+.pheno-title{
+  font-family:var(--f-serif); font-size:16px; font-weight:600; margin-bottom:12px;
+  display:flex; justify-content:space-between; align-items:baseline; gap:16px; flex-wrap:wrap;
+}
+.pheno-title span{ font-family:var(--f-sans); font-size:12px; color:var(--ink-soft); letter-spacing:.06em; }
+.pheno-row{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.pheno-label{
+  flex:0 0 40px; font-size:12px; color:var(--ink-soft); letter-spacing:.08em;
+}
+.pheno-track{
+  flex:1; display:grid; grid-template-columns:repeat(12,1fr); gap:4px; height:10px;
+}
+.pheno-track i{
+  display:block; height:10px; border-radius:2px;
+  background:transparent; border:1px solid var(--line);
+  animation:grow 240ms var(--ease) both;
+  transform-origin:left center;
+}
+@keyframes grow{ from{ transform:scaleX(.2); opacity:0 } to{ transform:none; opacity:1 } }
+.pheno-track i.on{ background:var(--moss-2); border-color:var(--moss-2); }
+.pheno-track i.peak{ background:var(--moss); border-color:var(--moss); }
+.pheno-months{
+  display:grid; grid-template-columns:repeat(12,1fr); gap:4px;
+  margin-left:52px; font-family:var(--f-latin); font-size:12px;
+  color:var(--ink-soft); text-align:center; letter-spacing:.04em;
+  padding-bottom:8px;
+}
+
+/* tabs */
+.tabs{
+  display:flex; gap:24px; border-bottom:1px solid var(--line); margin-bottom:24px;
+}
+.tab{
+  background:none;border:0;padding:8px 0;cursor:pointer;font-family:inherit;
+  font-size:16px; color:var(--ink-soft); border-bottom:2px solid transparent;
+  transition:color 200ms var(--ease), border-color 200ms var(--ease);
+}
+.tab:hover{ color:var(--moss); }
+.tab[aria-selected="true"]{ color:var(--ink); border-bottom-color:var(--moss); font-weight:600; }
+.tabpanel{ animation:fadeUp 200ms var(--ease) both; }
+
+/* 内容块 */
+.block{ margin-bottom:32px; max-width:44em; }
+.block h4{
+  font-family:var(--f-serif); font-size:16px; font-weight:600; margin-bottom:8px;
+  padding-left:12px; border-left:2px solid var(--moss-2); line-height:1.4;
+}
+.block p{ color:var(--ink-soft); }
+.qa{ border-top:1px solid var(--line); padding-top:16px; }
+.qa-item{ margin-bottom:16px; }
+.qa-q{ font-family:var(--f-serif); font-weight:600; font-size:14px; }
+.qa-a{ color:var(--ink-soft); font-size:14px; margin-top:4px; }
+
+/* 印章风强调（仅用于极少数场合） */
+.stamp{
+  display:inline-block; font-family:var(--f-serif); font-size:12px; letter-spacing:.1em;
+  color:var(--seal); border:1px solid var(--seal); border-radius:2px;
+  padding:0 8px; line-height:1.8; margin-left:12px; vertical-align:middle;
+}
+
+/* ---------- 状态 ---------- */
+.state{
+  border:1px solid var(--line); border-radius:4px;
+  padding:48px 24px; text-align:center; background:var(--paper-2);
+}
+.state-title{ font-family:var(--f-serif); font-size:20px; font-weight:600; margin-bottom:8px; }
+.state-desc{ color:var(--ink-soft); max-width:32em; margin:0 auto 16px; }
+.state-actions{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+.btn{
+  font-family:inherit; font-size:14px; cursor:pointer;
+  background:var(--paper); color:var(--moss);
+  border:1px solid var(--moss); border-radius:2px; padding:8px 16px; line-height:1.7;
+  transition:background-color 200ms var(--ease), color 200ms var(--ease);
+}
+.btn:hover{ background:var(--moss); color:var(--paper); }
+.btn-ghost{ border-color:var(--line); color:var(--ink-soft); }
+.btn-ghost:hover{ background:var(--paper-2); color:var(--ink); }
+
+/* 加载（不做闪烁动画，符合"只做三处动效"的契约） */
+.loading{ padding:64px 24px; text-align:center; }
+.loading-text{
+  font-family:var(--f-serif); font-size:16px; color:var(--ink-soft); letter-spacing:.1em;
+  margin-bottom:24px;
+}
+.skel{ max-width:640px; margin:0 auto; }
+.skel i{
+  display:block; height:12px; background:var(--paper-2);
+  border:1px solid var(--line); border-radius:2px; margin-bottom:8px;
+}
+.skel i:nth-child(1){ width:40%; height:20px; }
+.skel i:nth-child(2){ width:64%; }
+.skel i:nth-child(3){ width:88%; }
+.skel i:nth-child(4){ width:76%; }
+
+/* ---------- 底栏 ---------- */
+.site-foot{
+  border-top:1px solid var(--line); padding:32px 0 48px; background:var(--paper);
+}
+.foot-inner{ display:flex; gap:24px; justify-content:space-between; flex-wrap:wrap; align-items:flex-start; }
+.foot-note{ font-size:12px; color:var(--ink-soft); line-height:1.9; max-width:46em; }
+.switch{
+  display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+  font-size:13px; color:var(--ink-soft); user-select:none;
+}
+.switch input{ width:16px; height:16px; accent-color:var(--moss); cursor:pointer; }
+
+/* 契约摘要（给评审看的设计说明） */
+.contract{
+  margin-top:24px; border-top:1px solid var(--line); padding-top:16px;
+  font-size:12px; color:var(--ink-soft); max-width:60em;
+}
+.contract summary{
+  cursor:pointer; font-family:var(--f-serif); font-size:14px; color:var(--ink);
+  letter-spacing:.04em; padding:4px 0;
+}
+.contract summary:hover{ color:var(--moss); }
+.contract ul{ margin:12px 0 0 16px; }
+.contract li{ margin-bottom:4px; line-height:1.9; }
+.contract code{
+  font-family:var(--f-latin); font-size:12px; color:var(--moss);
+}
+
+/* 移动端 */
+@media(max-width:639px){
+  main{ padding:32px 0 48px; }
+  .head-inner{ gap:12px; padding-top:12px; padding-bottom:12px; }
+  .brand{ gap:8px; }
+  .brand-en{ display:none; }
+  .head-nav{ gap:16px; order:3; flex:1 1 100%; }
+  .head-search{ flex:1 1 100%; max-width:none; order:4; }
+  .hero{ gap:24px; padding-bottom:32px; margin-bottom:32px; }
+  .hero-art{ justify-content:flex-start; }
+  .hero-art svg{ width:120px; }
+  .hero h1{ font-size:28px; }
+  .detail-head h1{ font-size:28px; }
+  .detail-head .latin{ font-size:16px; }
+  .detail-art svg{ width:120px; height:120px; }
+  .pheno-months{ margin-left:0; font-size:12px; }
+  .pheno-row{ gap:8px; }
+  .pheno-label{ flex:0 0 32px; }
+  .filters{ gap:8px; }
+  .tabs{ gap:16px; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap head-inner">
+    <button class="brand" data-go="home" aria-label="回到首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+          <path d="M50 92 L50 46"/>
+          <path d="M50 62 C30 62 22 50 22 34 C40 34 50 46 50 62Z"/>
+          <path d="M50 52 C70 52 78 40 78 24 C60 24 50 36 50 52Z"/>
+        </svg>
+      </span>
+      <span class="brand-cn">植物故事</span>
+      <span class="brand-en">Flora · Stories</span>
+    </button>
+
+    <nav class="head-nav" aria-label="主导航">
+      <button class="navlink" data-go="home" id="nav-home">首页</button>
+      <button class="navlink" data-go="explore" id="nav-explore">探索</button>
+      <button class="navlink" data-go="parks" id="nav-parks">合作植物园</button>
+    </nav>
+
+    <div class="head-search">
+      <input id="q-top" type="search" placeholder="搜索中文名 / 拉丁名 / 关键词" aria-label="搜索植物">
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="app" tabindex="-1"></main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-inner">
+      <div class="foot-left">
+        <p class="foot-note">
+          演示原型 · 内容依据公开植物志资料整理，图片为矢量线稿，数据保存在本地，无外部请求。
+        </p>
+        <p class="foot-note">
+          内容结构：一株植物 = 19 个字段（编号 / 中文名 / 拉丁名 / 科 / 属 / 生活型 / 分布 / 物候 /
+          认识植物（特征·习性·亲缘·用途·问答）/ 植物历史（名称·形色·喜好·故事·感知）/ 所属园区）。
+        </p>
+      </div>
+      <div class="foot-right">
+        <label class="switch">
+          <input type="checkbox" id="netToggle">
+          <span>模拟断网（点开后再点导航，可看异常态）</span>
+        </label>
+      </div>
+    </div>
+
+    <details class="contract">
+      <summary>设计契约（本页遵循的约束）</summary>
+      <ul>
+        <li>色彩：<code>--paper #F5F1E8</code> 纸底 · <code>--ink #1A1A1A</code> 墨字 · <code>--moss #1F3D2B</code> 主色（单屏 ≤8%）· <code>--seal #A63D2F</code> 仅作印章式强调</li>
+        <li>字体：标题与故事正文用系统衬线，界面用系统黑体，拉丁学名用 Georgia 斜体；<strong>不加载任何外部字体，也不用 Inter / Roboto</strong></li>
+        <li>阶梯：字号仅 12/13/14/16/20/28/40；间距仅 4/8/12/16/24/32/48/64；圆角仅 2px / 4px</li>
+        <li>层次：不靠阴影，靠 1px 描边与纸色差（<code>--paper</code> / <code>--paper-2</code>）</li>
+        <li>动效：仅三处 —— 视图淡入、卡片 hover 上移 2px、物候带展开；时长 160–240ms</li>
+        <li>禁用：任何渐变、圆角 &gt; 4px、多层阴影、emoji 图标、纯白背景、三栏"我们的优势"式排版</li>
+        <li>可达性：全站键盘可达，<code>:focus-visible</code> 双像素描边；正文对比度约 15:1</li>
+      </ul>
+    </details>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =====================================================================
+     一、内容层：19 个字段 / 株
+     ===================================================================== */
+  var PLANTS = [
+    {
+      id: 'PL-001', no: 'No.01',
+      nameCn: '银杏', nameLatin: 'Ginkgo biloba',
+      family: '银杏科', genus: '银杏属', lifeForm: '落叶乔木',
+      distribution: '浙江天目山一带尚有野生种群',
+      tags: ['乔木', '观叶', '秋色'],
+      seal: '野生种群濒危',
+      hook: '一亿年前就长这样，秋天把整条路染成金色。',
+      phenology: { flower: [3, 4], fruit: [9, 10], best: [11, 11] },
+      know: {
+        features: '叶扇形，叶脉自基部二分叉；种子成熟时外种皮橙黄、有气味。',
+        ecology: '喜光、深根、耐寒耐旱，抗病虫害能力强，适应性广。',
+        kinship: '银杏门仅存一纲一目一科一属一种，形态两亿年间变化极小。',
+        landscape: '行道树与庭荫树；秋季观叶，成排种植时色带最完整。',
+        qa: [
+          { q: '银杏树分雌雄吗？', a: '分。雌株结种子，外种皮成熟后有气味；行道树多用雄株，避免落果。' },
+          { q: '为什么叫"活化石"？', a: '银杏类在侏罗纪广布，如今仅存银杏一种，形态与化石记录高度一致。' },
+          { q: '白果能吃吗？', a: '可食但须熟制并去胚芽，且不宜多食；城市绿化果实不建议采食。' }
+        ]
+      },
+      history: {
+        naming: '"银杏"因种子形似小杏、外种皮呈银白色而得名；古称"公孙树"，言其生长缓慢。',
+        appearance: '叶扇形如小扇，秋深转金黄；种熟时橙黄缀枝。',
+        preference: '喜深厚肥沃、排水良好的沙壤土，忌积水。',
+        story: '寺庙古道多植银杏，深秋满院金叶。民间视其为长寿与守望之树，一株可伴几代人。',
+        perception: '看叶脉的二分叉，摸叶面革质，秋日踩过落叶听那一声脆响。'
+      },
+      parks: ['杭州植物园']
+    },
+    {
+      id: 'PL-002', no: 'No.02',
+      nameCn: '鹅掌楸', nameLatin: 'Liriodendron chinense',
+      family: '木兰科', genus: '鹅掌楸属', lifeForm: '落叶乔木',
+      distribution: '长江流域以南至西南山地',
+      tags: ['乔木', '观叶', '乡土'],
+      seal: '',
+      hook: '叶子像一件小马褂，花像一朵郁金香。',
+      phenology: { flower: [4, 5], fruit: [9, 10], best: [4, 10] },
+      know: {
+        features: '叶先端平截、两侧各有一裂，形似旧式马褂；花被片 9，外轮绿色、内轮橙黄。',
+        ecology: '喜温暖湿润与半阴环境，幼树需庇荫，成树喜光。',
+        kinship: '与北美鹅掌楸构成东亚—北美间断分布的"姊妹种"，是植物地理学经典案例。',
+        landscape: '庭园观赏树与行道树；秋叶转金，与常绿树配置效果好。',
+        qa: [
+          { q: '为什么又叫"马褂木"？', a: '叶片两侧各有一裂、先端平截，形似旧式短马褂，故得名。' },
+          { q: '和北美鹅掌楸怎么分？', a: '中国鹅掌楸叶裂较浅、内轮花被橙黄；北美种叶裂更深、花更橙。' },
+          { q: '它是濒危植物吗？', a: '野生种群稀疏且更新困难，列为国家二级重点保护野生植物。' }
+        ]
+      },
+      history: {
+        naming: '"鹅掌楸"取叶形似鹅掌；花形似郁金香，英文名即 Tulip Tree。',
+        appearance: '花被外绿内橙，开在叶间并不显眼；深秋叶色转金。',
+        preference: '喜湿润、肥沃、微酸性土壤，耐寒性中等。',
+        story: '东亚与北美各存一种，隔着太平洋成为"亲戚"。这一对姊妹种，是大陆漂移与气候变迁的活证据。',
+        perception: '举叶对光，看那两裂与平截的顶端；五月进山，寻花要低头看叶间。'
+      },
+      parks: ['上海辰山植物园']
+    },
+    {
+      id: 'PL-003', no: 'No.03',
+      nameCn: '珙桐', nameLatin: 'Davidia involucrata',
+      family: '蓝果树科（一说珙桐科）', genus: '珙桐属', lifeForm: '落叶乔木',
+      distribution: '湖北、湖南、四川、贵州、云南山地',
+      tags: ['乔木', '观花', '濒危'],
+      seal: '国家一级',
+      hook: '花苞如白鸽栖枝，中国特有的"鸽子树"。',
+      phenology: { flower: [4, 5], fruit: [9, 10], best: [4, 5] },
+      know: {
+        features: '两枚大形白色苞片下垂，包裹中央紫褐色头状花序；核果紫黑。',
+        ecology: '喜阴凉多雾的山地环境，常生于沟谷两侧与林缘。',
+        kinship: '单种属，其科级位置长期有争论，曾被置于珙桐科、蓝果树科或山茱萸科。',
+        landscape: '珍稀观赏树，宜作专类园中的"鸽子树"景。',
+        qa: [
+          { q: '那对"白鸽翅膀"是花瓣吗？', a: '不是。它是两枚苞片；真正的花是中间那个球状花序。' },
+          { q: '为什么叫鸽子树？', a: '盛花时白色苞片随风摆动，远看如群鸽栖于枝头。' },
+          { q: '保护级别是？', a: '国家一级重点保护野生植物。' }
+        ]
+      },
+      history: {
+        naming: '模式标本采自四川珙县一带，以地名命名；西方称 Dove Tree。',
+        appearance: '苞片乳白如绢，花序紫褐；秋叶转黄。',
+        preference: '喜阴凉湿润、富含腐殖质的山地黄壤或棕壤。',
+        story: '1869 年由法国传教士在四川发现，此后引种欧美，被称作"中国鸽子树"，一度成为园林奇观。',
+        perception: '四月入山，雨雾中看苞片低垂；风过时，整树如栖鸽齐振。'
+      },
+      parks: ['杭州植物园']
+    },
+    {
+      id: 'PL-004', no: 'No.04',
+      nameCn: '水杉', nameLatin: 'Metasequoia glyptostroboides',
+      family: '柏科', genus: '水杉属', lifeForm: '落叶乔木',
+      distribution: '湖北利川、重庆石柱、湖南龙山一带',
+      tags: ['乔木', '观叶', '秋色', '濒危'],
+      seal: '孑遗植物',
+      hook: '1940 年代才被"重新发现"的孑遗树，秋来一树砖红。',
+      phenology: { flower: [2, 3], fruit: [10, 11], best: [11, 11] },
+      know: {
+        features: '小枝与叶均对生，羽状排列；秋叶由绿转褐红，冬季连同小枝脱落。',
+        ecology: '喜光、喜湿润、耐水湿，生长迅速，可作护岸与防护林。',
+        kinship: '与水杉属化石一脉相承，白垩纪曾广布北半球，如今仅存一种。',
+        landscape: '湖畔列植、湿地景观与行道树；秋季色带最出效果。',
+        qa: [
+          { q: '水杉和落羽杉怎么区分？', a: '水杉的叶与小枝都是对生；落羽杉叶互生。' },
+          { q: '为什么说它是"活化石"？', a: '曾只见于化石，1941 年后在湖北利川发现活体，震动植物学界。' },
+          { q: '水杉能种在水边吗？', a: '可以。它耐水湿，浅水边与湿地生长良好。' }
+        ]
+      },
+      history: {
+        naming: '喜水湿、叶似杉，故名水杉。',
+        appearance: '树干通直、塔形，叶羽状对生，秋转褐红。',
+        preference: '喜光、喜湿润，耐轻盐碱与短期积水。',
+        story: '1941 年在湖北利川被中国学者发现活体，此前它只存在于化石记录中，被视为二十世纪植物学重大发现。',
+        perception: '看叶与小枝的对生排列；冬日看塔形树姿，夏天看羽状投影。'
+      },
+      parks: ['上海辰山植物园']
+    },
+    {
+      id: 'PL-005', no: 'No.05',
+      nameCn: '香樟', nameLatin: 'Cinnamomum camphora',
+      family: '樟科', genus: '樟属', lifeForm: '常绿乔木',
+      distribution: '长江以南各省',
+      tags: ['乔木', '乡土', '观叶'],
+      seal: '',
+      hook: '揉一片叶子，掌心会留下清凉的樟香。',
+      phenology: { flower: [4, 5], fruit: [10, 11], best: [4, 4] },
+      know: {
+        features: '叶革质、揉碎有樟脑气味；脉腋常有腺点；新叶带红。',
+        ecology: '喜温暖湿润，耐修剪，抗污染，树龄可达数百年。',
+        kinship: '樟属以富含樟脑与芳香油著称，是樟科的代表属之一。',
+        landscape: '行道树、庭荫树与防护林；江南村落的主要风水树。',
+        qa: [
+          { q: '樟树为什么能防虫？', a: '枝叶含樟脑等挥发性物质，气味可驱虫，木材也耐腐。' },
+          { q: '香樟是常绿树，为什么春天满地落叶？', a: '常绿树也会换叶，香樟多在春季集中落老叶，同时抽新梢。' },
+          { q: '什么时候开花？', a: '4–5 月开细小的黄绿色花，藏在叶间，不显眼但气味清。' }
+        ]
+      },
+      history: {
+        naming: '木质含樟脑、香气浓，"樟"即取其香；古称"豫章"。',
+        appearance: '叶亮绿革质，新叶泛红；老树树皮纵裂。',
+        preference: '喜光、喜温暖湿润，适微酸性土壤。',
+        story: '江南习俗：女儿出生栽一株樟，出嫁时伐木作箱柜，故有"女儿树"之称。村落口的古樟，往往是整村的地标。',
+        perception: '揉叶闻香；春看新叶的红，夏闻满巷淡香。'
+      },
+      parks: ['杭州植物园']
+    },
+    {
+      id: 'PL-006', no: 'No.06',
+      nameCn: '玉兰', nameLatin: 'Magnolia denudata',
+      family: '木兰科', genus: '玉兰属', lifeForm: '落叶乔木',
+      distribution: '江西、浙江、湖南、贵州',
+      tags: ['乔木', '观花', '乡土'],
+      seal: '',
+      hook: '叶子还没长，花就先开满了枝头。',
+      phenology: { flower: [2, 3], fruit: [9, 10], best: [2, 3] },
+      know: {
+        features: '先花后叶；花被片 9，纯白，径 10–16 厘米，芳香；花芽被毛。',
+        ecology: '喜光、耐寒，怕积水；花期早，易受晚霜影响。',
+        kinship: '木兰科为古老被子植物类群，花被片尚未分化为萼片与花瓣。',
+        landscape: '庭园孤植、对植；早春开花，是北方少见的早花乔木。',
+        qa: [
+          { q: '为什么玉兰先开花后长叶？', a: '花芽在前一年夏秋已分化完成，早春温度先满足开花条件。' },
+          { q: '玉兰和紫玉兰怎么分？', a: '玉兰花被纯白、花被片 9；紫玉兰外面紫红、里面白。' },
+          { q: '玉兰的花能吃吗？', a: '传统有裹面油炸"玉兰片"的做法，但城市绿化花不建议采食。' }
+        ]
+      },
+      history: {
+        naming: '花色白如玉、香似兰，故名玉兰；古称"辛夷"者多指其近亲。',
+        appearance: '花白而大，开在光秃枝端；枝干苍劲，冬芽密被绒毛。',
+        preference: '喜光、耐寒、喜排水良好的微酸性土壤。',
+        story: '古时庭前常植玉兰，与海棠、牡丹、桂花并称"玉堂富贵"，是民居与寺观常见的春信。',
+        perception: '二月底仰头看枝端的花与毛芽；夜里走过，香气先到。'
+      },
+      parks: ['杭州植物园', '北京植物园']
+    }
+  ];
+
+  var PARKS = [
+    {
+      id: 'park-1', name: '杭州植物园',
+      city: '杭州 · 西湖区桃源岭',
+      intro: '山地与湿地兼具，木兰科与珍稀濒危植物收集较完整，春季观花与秋季观叶兼得。',
+      plants: ['PL-001', 'PL-003', 'PL-006'],
+      info: '开放时间以园方公告为准；建议春（3–4 月）秋（11 月）两次到访。'
+    },
+    {
+      id: 'park-2', name: '上海辰山植物园',
+      city: '上海 · 松江区',
+      intro: '以专类园见长，水生与湿地植物、珍稀树种的展示动线清晰，适合做植物故事的实地样本。',
+      plants: ['PL-002', 'PL-004'],
+      info: '开放时间以园方公告为准；矿坑花园与水生区是重点片区。'
+    },
+    {
+      id: 'park-3', name: '北京植物园',
+      city: '北京 · 海淀区香山',
+      intro: '北方木本植物资源集中，早春观花树种成规模，是"先花后叶"类植物最好的观察地。',
+      plants: ['PL-006'],
+      info: '开放时间以园方公告为准；早春（2 月下旬至 3 月）为玉兰最佳期。'
+    }
+  ];
+
+  var TAGS = ['全部', '乔木', '观花', '观叶', '秋色', '濒危', '乡土'];
+
+  /* =====================================================================
+     二、矢量线稿（不引外部图片；标本馆风格的单色线条）
+     ===================================================================== */
+  var S = 'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"';
+
+  var ART = {
+    'PL-001': // 银杏：扇叶（顶部带缺口）+ 二叉脉
+      '<svg viewBox="0 0 100 100" role="img" aria-label="银杏叶片线稿">' +
+      '<path ' + S + ' d="M50 92 L50 56"/>' +
+      '<path ' + S + ' d="M24 46 A26 26 0 0 1 48 21"/>' +
+      '<path ' + S + ' d="M52 21 A26 26 0 0 1 76 46"/>' +
+      '<path ' + S + ' d="M50 56 L24 46"/><path ' + S + ' d="M50 56 L76 46"/>' +
+      '<path ' + S + ' d="M50 56 L38 36"/><path ' + S + ' d="M50 56 L62 36"/>' +
+      '</svg>',
+    'PL-002': // 鹅掌楸：马褂形叶（顶边平截，两侧各一裂）
+      '<svg viewBox="0 0 100 100" role="img" aria-label="鹅掌楸叶片线稿">' +
+      '<path ' + S + ' d="M50 92 L50 80"/>' +
+      '<path ' + S + ' d="M38 28 L45 28 L50 36 L55 28 L62 28 C71 28 77 34 79 43 C81 51 77 57 70 55 L63 53 C61 63 58 72 54 80 L50 86 L46 80 C42 72 39 63 37 53 L30 55 C23 57 19 51 21 43 C23 34 29 28 38 28 Z"/>' +
+      '<path ' + S + ' d="M50 80 L50 34"/>' +
+      '</svg>',
+    'PL-003': // 珙桐：两枚下垂苞片 + 球形花序
+      '<svg viewBox="0 0 100 100" role="img" aria-label="珙桐苞片与花序线稿">' +
+      '<path ' + S + ' d="M50 10 L50 30"/>' +
+      '<circle cx="50" cy="34" r="6" ' + S + '/>' +
+      '<path ' + S + ' d="M44 40 C30 48 26 66 34 86 C44 70 48 54 46 40 Z"/>' +
+      '<path ' + S + ' d="M56 40 C70 48 74 66 66 86 C56 70 52 54 54 40 Z"/>' +
+      '</svg>',
+    'PL-004': // 水杉：羽状对生叶
+      '<svg viewBox="0 0 100 100" role="img" aria-label="水杉羽状叶线稿">' +
+      '<path ' + S + ' d="M50 8 L50 92"/>' +
+      '<path ' + S + ' d="M50 20 L34 14"/><path ' + S + ' d="M50 20 L66 14"/>' +
+      '<path ' + S + ' d="M50 32 L32 26"/><path ' + S + ' d="M50 32 L68 26"/>' +
+      '<path ' + S + ' d="M50 44 L30 38"/><path ' + S + ' d="M50 44 L70 38"/>' +
+      '<path ' + S + ' d="M50 56 L32 50"/><path ' + S + ' d="M50 56 L68 50"/>' +
+      '<path ' + S + ' d="M50 68 L36 62"/><path ' + S + ' d="M50 68 L64 62"/>' +
+      '</svg>',
+    'PL-005': // 香樟：卵形叶 + 三出脉
+      '<svg viewBox="0 0 100 100" role="img" aria-label="香樟叶片线稿">' +
+      '<path ' + S + ' d="M50 92 L50 84"/>' +
+      '<path ' + S + ' d="M50 84 C20 68 22 24 50 10 C78 24 80 68 50 84 Z"/>' +
+      '<path ' + S + ' d="M50 84 L50 18"/>' +
+      '<path ' + S + ' d="M50 62 L34 48"/><path ' + S + ' d="M50 62 L66 48"/>' +
+      '</svg>',
+    'PL-006': // 玉兰：花被片
+      '<svg viewBox="0 0 100 100" role="img" aria-label="玉兰花线稿">' +
+      '<path ' + S + ' d="M50 30 L50 16"/>' +
+      '<path ' + S + ' d="M50 88 C38 70 36 44 50 26 C64 44 62 70 50 88 Z"/>' +
+      '<path ' + S + ' d="M50 88 C36 78 26 56 32 34 C44 46 48 68 50 88 Z"/>' +
+      '<path ' + S + ' d="M50 88 C64 78 74 56 68 34 C56 46 52 68 50 88 Z"/>' +
+      '</svg>'
+  };
+
+  var HERO_ART =
+    '<svg viewBox="0 0 100 100" role="img" aria-label="枝叶线稿">' +
+    '<path ' + S + ' d="M50 96 L50 30"/>' +
+    '<path ' + S + ' d="M50 46 C30 46 18 36 16 20 C38 20 50 30 50 46 Z"/>' +
+    '<path ' + S + ' d="M50 62 C70 62 82 52 84 36 C62 36 50 46 50 62 Z"/>' +
+    '<path ' + S + ' d="M50 78 C32 78 22 70 20 56 C40 56 50 64 50 78 Z"/>' +
+    '</svg>';
+
+  /* =====================================================================
+     三、状态与渲染
+     ===================================================================== */
+  var state = {
+    view: 'home',      // home | explore | parks | detail
+    q: '',
+    tag: '全部',
+    plantId: null,
+    tab: 'know',
+    pending: null,     // 断网时用于重试
+    loading: false,
+    error: false
+  };
+
+  var app = document.getElementById('app');
+  var netToggle = document.getElementById('netToggle');
+  var qTop = document.getElementById('q-top');
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function plantById(id) {
+    for (var i = 0; i < PLANTS.length; i++) { if (PLANTS[i].id === id) return PLANTS[i]; }
+    return null;
+  }
+
+  function matchTags(p, tag) {
+    return tag === '全部' || p.tags.indexOf(tag) >= 0;
+  }
+
+  function matchQuery(p, q) {
+    if (!q) return true;
+    var s = q.trim().toLowerCase();
+    if (!s) return true;
+    var hay = [p.nameCn, p.nameLatin, p.family, p.genus, p.lifeForm, p.hook]
+      .concat(p.tags).join(' ').toLowerCase();
+    return hay.indexOf(s) >= 0;
+  }
+
+  /* ---------- 卡片 ---------- */
+  function plantCard(p) {
+    var sealTag = p.seal ? '<span class="tag seal">' + esc(p.seal) + '</span>' : '';
+    return '' +
+      '<button class="pcard" data-plant="' + p.id + '" aria-label="查看 ' + esc(p.nameCn) + ' 的植物故事">' +
+        '<span class="pcard-art" aria-hidden="true">' + (ART[p.id] || '') + '</span>' +
+        '<span class="pcard-body">' +
+          '<span class="pcard-no">' + esc(p.no) + ' / ' + esc(p.id) + '</span>' +
+          '<h3>' + esc(p.nameCn) + '</h3>' +
+          '<span class="latin">' + esc(p.nameLatin) + '</span>' +
+          '<span class="hook">' + esc(p.hook) + '</span>' +
+          '<span class="tagline">' +
+            p.tags.slice(0, 2).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('') +
+            sealTag +
+          '</span>' +
+        '</span>' +
+      '</button>';
+  }
+
+  function parkCard(pk) {
+    return '' +
+      '<button class="parkcard" data-park="' + pk.id + '">' +
+        '<span class="parkcard-art" aria-hidden="true">' +
+          '<svg width="34" height="34" viewBox="0 0 100 100" ' + S + '>' +
+            '<path d="M10 78 L50 22 L90 78 Z"/><path d="M30 78 L50 52 L70 78"/>' +
+          '</svg>' +
+        '</span>' +
+        '<span>' +
+          '<h3>' + esc(pk.name) + '</h3>' +
+          '<p>' + esc(pk.city) + '</p>' +
+          '<p>' + esc(pk.intro) + '</p>' +
+        '</span>' +
+      '</button>';
+  }
+
+  /* ---------- 首页 ---------- */
+  function viewHome() {
+    var picks = [PLANTS[0], PLANTS[2], PLANTS[1]];
+    return '' +
+      '<div class="view">' +
+        '<section class="hero">' +
+          '<div>' +
+            '<p class="hero-kicker">Flora · Stories · 植物志</p>' +
+            '<h1>一株树被读懂，<em>需要名字、时序与故事</em>。</h1>' +
+            '<p class="hero-lede">' +
+              '这里的每一种植物都有编号、有物候、有它的来历。' +
+              '你可以按名字找它，也可以按"几月去看它"来找。' +
+            '</p>' +
+          '</div>' +
+          '<div class="hero-art" aria-hidden="true">' + HERO_ART + '</div>' +
+        '</section>' +
+
+        '<section class="sec">' +
+          '<div class="sec-head">' +
+            '<h2 class="sec-title">精选</h2>' +
+            '<span class="sec-note">' + PLANTS.length + ' 种已收录</span>' +
+          '</div>' +
+          '<div class="grid">' + picks.map(plantCard).join('') + '</div>' +
+        '</section>' +
+
+        '<section class="sec">' +
+          '<div class="sec-head">' +
+            '<h2 class="sec-title">合作植物园</h2>' +
+            '<button class="sec-more" data-go="parks">全部园区</button>' +
+          '</div>' +
+          '<div class="grid">' + PARKS.slice(0, 2).map(parkCard).join('') + '</div>' +
+        '</section>' +
+      '</div>';
+  }
+
+  /* ---------- 探索 ---------- */
+  function viewExplore() {
+    var list = PLANTS.filter(function (p) {
+      return matchTags(p, state.tag) && matchQuery(p, state.q);
+    });
+
+    var chips = TAGS.map(function (t) {
+      return '<button class="chip" data-tag="' + esc(t) + '" aria-pressed="' +
+        (state.tag === t ? 'true' : 'false') + '">' + esc(t) + '</button>';
+    }).join('');
+
+    var body;
+    if (!list.length) {
+      body = '' +
+        '<div class="state">' +
+          '<p class="state-title">没有找到这个植物</p>' +
+          '<p class="state-desc">换个写法试试：中文名、拉丁名，或"观花""秋色"这类关键词。</p>' +
+          '<div class="state-actions">' +
+            '<button class="btn" data-suggest="银杏">试试「银杏」</button>' +
+            '<button class="btn btn-ghost" data-reset="1">清空条件</button>' +
+          '</div>' +
+        '</div>';
+    } else {
+      body = '<div class="grid">' + list.map(plantCard).join('') + '</div>';
+    }
+
+    return '' +
+      '<div class="view">' +
+        '<div class="sec-head">' +
+          '<h2 class="sec-title">探索</h2>' +
+          '<span class="sec-note">' + list.length + ' 条结果</span>' +
+        '</div>' +
+        '<div class="head-search" style="max-width:420px">' +
+          '<input id="q-list" type="search" value="' + esc(state.q) +
+          '" placeholder="搜索中文名 / 拉丁名 / 关键词" aria-label="在结果中搜索">' +
+        '</div>' +
+        '<div class="filters" role="group" aria-label="按类别筛选">' + chips + '</div>' +
+        body +
+      '</div>';
+  }
+
+  /* ---------- 园区 ---------- */
+  function viewParks() {
+    var cards = PARKS.map(function (pk) {
+      var names = pk.plants.map(function (id) {
+        var p = plantById(id); return p ? p.nameCn : '';
+      }).filter(Boolean).join(' · ');
+      return '' +
+        '<div class="parkcard" style="cursor:default">' +
+          '<span class="parkcard-art" aria-hidden="true">' +
+            '<svg width="34" height="34" viewBox="0 0 100 100" ' + S + '>' +
+              '<path d="M10 78 L50 22 L90 78 Z"/><path d="M30 78 L50 52 L70 78"/>' +
+            '</svg>' +
+          '</span>' +
+          '<span>' +
+            '<h3>' + esc(pk.name) + '</h3>' +
+            '<p>' + esc(pk.city) + '</p>' +
+            '<p>' + esc(pk.intro) + '</p>' +
+            '<p style="margin-top:8px;color:var(--ink)">代表植物：' + esc(names) + '</p>' +
+            '<p>' + esc(pk.info) + '</p>' +
+          '</span>' +
+        '</div>';
+    }).join('');
+
+    return '' +
+      '<div class="view">' +
+        '<div class="sec-head">' +
+          '<h2 class="sec-title">合作植物园</h2>' +
+          '<span class="sec-note">园区内容与植物故事同源</span>' +
+        '</div>' +
+        '<div class="grid" style="grid-template-columns:1fr">' +
+          '<div class="grid" style="grid-template-columns:1fr">' + cards + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ---------- 详情 ---------- */
+  function phenoRow(label, range, peakRange) {
+    var cells = '';
+    for (var m = 1; m <= 12; m++) {
+      var on = m >= range[0] && m <= range[1];
+      var peak = on && m >= peakRange[0] && m <= peakRange[1];
+      cells += '<i class="' + (on ? (peak ? 'peak' : 'on') : '') + '"></i>';
+    }
+    return '' +
+      '<div class="pheno-row">' +
+        '<span class="pheno-label">' + esc(label) + '</span>' +
+        '<span class="pheno-track">' + cells + '</span>' +
+      '</div>';
+  }
+
+  function viewDetail(id) {
+    var p = plantById(id);
+    if (!p) return viewError('这一株还没有收录');
+
+    var months = '';
+    for (var m = 1; m <= 12; m++) { months += '<span>' + m + '</span>'; }
+
+    var knowHtml = '' +
+      '<div class="block"><h4>关键特征</h4><p>' + esc(p.know.features) + '</p></div>' +
+      '<div class="block"><h4>生态习性</h4><p>' + esc(p.know.ecology) + '</p></div>' +
+      '<div class="block"><h4>亲缘关系</h4><p>' + esc(p.know.kinship) + '</p></div>' +
+      '<div class="block"><h4>园林用途</h4><p>' + esc(p.know.landscape) + '</p></div>' +
+      '<div class="block qa"><h4>科学问答</h4>' +
+        p.know.qa.map(function (x) {
+          return '<div class="qa-item"><p class="qa-q">' + esc(x.q) + '</p>' +
+                 '<p class="qa-a">' + esc(x.a) + '</p></div>';
+        }).join('') +
+      '</div>';
+
+    var historyHtml = '' +
+      '<div class="block"><h4>名称由来</h4><p>' + esc(p.history.naming) + '</p></div>' +
+      '<div class="block"><h4>形色</h4><p>' + esc(p.history.appearance) + '</p></div>' +
+      '<div class="block"><h4>喜好</h4><p>' + esc(p.history.preference) + '</p></div>' +
+      '<div class="block"><h4>植物故事</h4><p>' + esc(p.history.story) + '</p></div>' +
+      '<div class="block"><h4>感知方式</h4><p>' + esc(p.history.perception) + '</p></div>';
+
+    var related = PLANTS.filter(function (x) {
+      return x.id !== p.id && x.family === p.family;
+    });
+    if (related.length < 2) {
+      related = related.concat(PLANTS.filter(function (x) {
+        return x.id !== p.id && related.indexOf(x) < 0;
+      })).slice(0, 2);
+    } else {
+      related = related.slice(0, 2);
+    }
+
+    var parks = p.parks.map(function (n) { return '<span class="tag">' + esc(n) + '</span>'; }).join('');
+
+    return '' +
+      '<div class="view">' +
+        '<button class="breadcrumb" data-go="explore">← 返回探索</button>' +
+
+        '<div class="detail-head">' +
+          '<div>' +
+            '<div class="detail-no">' + esc(p.no) + ' ／ ' + esc(p.id) +
+              (p.seal ? '<span class="stamp">' + esc(p.seal) + '</span>' : '') + '</div>' +
+            '<h1>' + esc(p.nameCn) + '</h1>' +
+            '<div class="latin">' + esc(p.nameLatin) + '</div>' +
+            '<p class="lede">' + esc(p.hook) + '</p>' +
+          '</div>' +
+          '<div class="detail-art" aria-hidden="true">' + (ART[p.id] || '') + '</div>' +
+        '</div>' +
+
+        '<dl class="facts">' +
+          '<div class="fact"><dt>科</dt><dd>' + esc(p.family) + '</dd></div>' +
+          '<div class="fact"><dt>属</dt><dd>' + esc(p.genus) + '</dd></div>' +
+          '<div class="fact"><dt>生活型</dt><dd>' + esc(p.lifeForm) + '</dd></div>' +
+          '<div class="fact"><dt>天然分布</dt><dd>' + esc(p.distribution) + '</dd></div>' +
+        '</dl>' +
+
+        '<section class="pheno" aria-label="物候：花期 ' + p.phenology.flower.join('–') +
+          ' 月，果期 ' + p.phenology.fruit.join('–') + ' 月，最佳观赏 ' +
+          p.phenology.best.join('–') + ' 月">' +
+          '<div class="pheno-title">物候 <span>横轴为一年十二个月</span></div>' +
+          phenoRow('花期', p.phenology.flower, [p.phenology.flower[0], p.phenology.flower[0] + 1]) +
+          phenoRow('果期', p.phenology.fruit, [p.phenology.fruit[0], p.phenology.fruit[0] + 1]) +
+          phenoRow('观赏', p.phenology.best, p.phenology.best) +
+          '<div class="pheno-months">' + months + '</div>' +
+        '</section>' +
+
+        '<div class="tabs" role="tablist" aria-label="植物内容">' +
+          '<button class="tab" role="tab" data-tab="know" aria-selected="' +
+            (state.tab === 'know' ? 'true' : 'false') + '">认识植物</button>' +
+          '<button class="tab" role="tab" data-tab="history" aria-selected="' +
+            (state.tab === 'history' ? 'true' : 'false') + '">植物历史</button>' +
+        '</div>' +
+
+        '<div class="tabpanel" role="tabpanel">' +
+          (state.tab === 'know' ? knowHtml : historyHtml) +
+        '</div>' +
+
+        '<section class="sec" style="margin-top:48px">' +
+          '<div class="sec-head">' +
+            '<h2 class="sec-title">相关植物</h2>' +
+            '<span class="sec-note">同科或相近</span>' +
+          '</div>' +
+          '<div class="grid">' + related.map(plantCard).join('') + '</div>' +
+        '</section>' +
+
+        '<section class="sec">' +
+          '<div class="sec-head">' +
+            '<h2 class="sec-title">可以看到它的园区</h2>' +
+          '</div>' +
+          '<div class="tagline" style="margin-top:0">' + parks + '</div>' +
+        '</section>' +
+      '</div>';
+  }
+
+  /* ---------- 状态视图 ---------- */
+  function viewLoading() {
+    return '' +
+      '<div class="loading" role="status" aria-live="polite">' +
+        '<p class="loading-text">正在整理标本…</p>' +
+        '<div class="skel" aria-hidden="true"><i></i><i></i><i></i><i></i></div>' +
+      '</div>';
+  }
+
+  function viewError(msg) {
+    return '' +
+      '<div class="state" role="alert">' +
+        '<p class="state-title">' + esc(msg || '内容加载失败') + '</p>' +
+        '<p class="state-desc">' +
+          '这可能是网络中断，也可能是内容服务暂时没有响应。' +
+          '你的筛选条件不会被清空。' +
+        '</p>' +
+        '<div class="state-actions">' +
+          '<button class="btn" data-retry="1">重试</button>' +
+          '<button class="btn btn-ghost" data-go="home">回到首页</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ---------- 渲染 ---------- */
+  function render() {
+    updateNav();
+
+    if (state.loading) { app.innerHTML = viewLoading(); return; }
+    if (state.error)   { app.innerHTML = viewError(); return; }
+
+    if (state.view === 'home')          app.innerHTML = viewHome();
+    else if (state.view === 'explore')  app.innerHTML = viewExplore();
+    else if (state.view === 'parks')    app.innerHTML = viewParks();
+    else if (state.view === 'detail')   app.innerHTML = viewDetail(state.plantId);
+
+    var listInput = document.getElementById('q-list');
+    if (listInput) {
+      listInput.addEventListener('input', function (e) {
+        state.q = e.target.value;
+        render();
+        var again = document.getElementById('q-list');
+        if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+      });
+    }
+  }
+
+  function updateNav() {
+    ['home', 'explore', 'parks'].forEach(function (v) {
+      var el = document.getElementById('nav-' + v);
+      if (!el) return;
+      if (state.view === v) { el.setAttribute('aria-current', 'page'); }
+      else { el.removeAttribute('aria-current'); }
+    });
+  }
+
+  /* ---------- 导航（带加载与断网模拟） ---------- */
+  function navigate(next) {
+    state.pending = next;
+    state.loading = true;
+    state.error = false;
+    render();
+
+    window.setTimeout(function () {
+      state.loading = false;
+      if (netToggle && netToggle.checked) {
+        state.error = true;          // 模拟断网：保持 pending，便于重试
+        render();
+        return;
+      }
+      state.error = false;
+      applyPending();
+    }, 500);
+  }
+
+  function applyPending() {
+    var n = state.pending;
+    if (!n) { render(); return; }
+    if (n.view) { state.view = n.view; }
+    if (n.plantId) { state.plantId = n.plantId; state.tab = state.tab || 'know'; }
+    if (n.tab) { state.tab = n.tab; }
+    if (n.reset) { state.q = ''; state.tag = '全部'; if (qTop) qTop.value = ''; }
+    state.pending = null;
+    render();
+    app.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  /* ---------- 事件委托 ---------- */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-go],[data-plant],[data-tag],[data-tab],[data-retry],[data-park],[data-suggest],[data-reset]') : null;
+    if (!t) return;
+
+    if (t.hasAttribute('data-go')) {
+      navigate({ view: t.getAttribute('data-go') });
+      return;
+    }
+    if (t.hasAttribute('data-plant')) {
+      navigate({ view: 'detail', plantId: t.getAttribute('data-plant') });
+      return;
+    }
+    if (t.hasAttribute('data-tag')) {
+      state.tag = t.getAttribute('data-tag');
+      state.view = 'explore';
+      render();
+      return;
+    }
+    if (t.hasAttribute('data-tab')) {
+      state.tab = t.getAttribute('data-tab');
+      render();
+      return;
+    }
+    if (t.hasAttribute('data-retry')) {
+      if (!state.pending) { state.pending = { view: state.view, plantId: state.plantId, tab: state.tab }; }
+      navigate(state.pending);
+      return;
+    }
+    if (t.hasAttribute('data-suggest')) {
+      state.q = t.getAttribute('data-suggest');
+      if (qTop) qTop.value = state.q;
+      render();
+      return;
+    }
+    if (t.hasAttribute('data-reset')) {
+      state.q = ''; state.tag = '全部';
+      if (qTop) qTop.value = '';
+      render();
+      return;
+    }
+    if (t.hasAttribute('data-park')) {
+      navigate({ view: 'parks' });
+      return;
+    }
+  });
+
+  /* 顶部搜索：回车或输入即跳转探索 */
+  if (qTop) {
+    var timer = null;
+    qTop.addEventListener('input', function (e) {
+      state.q = e.target.value;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        if (state.view !== 'explore') { navigate({ view: 'explore' }); }
+        else { render(); }
+      }, 320);
+    });
+    qTop.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        state.q = e.target.value;
+        navigate({ view: 'explore' });
+      }
+    });
+  }
+
+  /* 断网开关：打开后立刻给出提示，不强跳 */
+  if (netToggle) {
+    netToggle.addEventListener('change', function () {
+      if (netToggle.checked) {
+        state.pending = { view: state.view, plantId: state.plantId, tab: state.tab };
+      }
+    });
+  }
+
+  /* 启动 */
+  render();
+  window.requestAnimationFrame(function () {
+    document.body.classList.add('booted');
+  });
+})();
+</script>
+</body>
+</html>

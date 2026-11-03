@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>植物故事 · 一株植物的读法</title>
+<meta name="description" content="植物故事 · 面客端原型。一株植物的编号、物候与来历：可按中文名或拉丁名搜索，也可按"几月去看它"筛选。含加载、无数据、异常与重试四种状态。">
+<meta name="theme-color" content="#F5F1E8">
+<meta property="og:type" content="website">
+<meta property="og:title" content="植物故事 · 一株植物的读法">
+<meta property="og:description" content="按名字找它，也按几月去看它来找。含物候条、认识植物与植物历史。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23F5F1E8'/%3E%3Cpath d='M50 88V44' stroke='%231F3D2B' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M50 62C30 62 22 50 22 34 40 34 50 46 50 62Z' fill='%231F3D2B'/%3E%3Cpath d='M50 50C70 50 78 38 78 22 60 22 50 34 50 50Z' fill='%234A6B4F'/%3E%3C/svg%3E">
 <!--
   植物故事 · 面客端原型（单文件，零外部依赖）
   ---------------------------------------------------------
@@ -202,7 +208,7 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
 }
 .sec-note{ font-size:12px; color:var(--ink-soft); letter-spacing:.06em; }
 .sec-more{
-  background:none;border:0;padding:0;cursor:pointer;
+  background:none;border:0;padding:8px 0;cursor:pointer;
   font-family:var(--f-sans);font-size:13px;color:var(--moss);
   border-bottom:1px solid var(--moss); line-height:1.2;
   transition:opacity 200ms var(--ease);
@@ -292,6 +298,15 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
 .chip[aria-pressed="true"]{
   color:var(--paper); background:var(--moss); border-color:var(--moss);
 }
+
+/* 按月份筛选 */
+.filter-label{
+  font-size:12px; letter-spacing:.14em; color:var(--ink-soft);
+  align-self:center; margin-right:4px; white-space:nowrap;
+}
+.months{ gap:4px; margin-top:-8px; }
+.months .chip{ padding:4px 8px; min-width:32px; text-align:center; font-family:var(--f-latin); }
+.chip-clear{ font-family:var(--f-sans); letter-spacing:.04em; }
 
 /* ---------- 详情 ---------- */
 .detail-head{
@@ -481,6 +496,14 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
   .pheno-label{ flex:0 0 32px; }
   .filters{ gap:8px; }
   .tabs{ gap:16px; }
+  /* 触摸目标：关键控件提到 44px（Apple HIG / WCAG 2.5.8 之上） */
+  .navlink{ min-height:44px; display:inline-flex; align-items:center; padding:0 4px; }
+  .brand{ min-height:44px; }
+  .sec-more{ min-height:44px; display:inline-flex; align-items:center; }
+  .switch{ min-height:44px; }
+  input[type="search"]{ min-height:44px; }
+  .chip{ min-height:36px; }
+  .switch input{ width:20px; height:20px; }
 }
 </style>
 </head>
@@ -521,10 +544,14 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
         <p class="foot-note">
           演示原型 · 内容依据公开植物志资料整理，图片为矢量线稿，数据保存在本地，无外部请求。
         </p>
-        <p class="foot-note">
-          内容结构：一株植物 = 19 个字段（编号 / 中文名 / 拉丁名 / 科 / 属 / 生活型 / 分布 / 物候 /
-          认识植物（特征·习性·亲缘·用途·问答）/ 植物历史（名称·形色·喜好·故事·感知）/ 所属园区）。
-        </p>
+        <details class="contract" style="margin-top:8px">
+          <summary>内容结构：一株植物 = 19 个字段</summary>
+          <ul>
+            <li>编号 / 中文名 / 拉丁名 / 科 / 属 / 生活型 / 天然分布 / 物候（花期·果期·最佳观赏）</li>
+            <li>认识植物：关键特征 · 生态习性 · 亲缘关系 · 园林用途 · 科学问答 ×3</li>
+            <li>植物历史：名称由来 · 形色 · 喜好 · 植物故事 · 感知方式 · 所属园区</li>
+          </ul>
+        </details>
       </div>
       <div class="foot-right">
         <label class="switch">
@@ -826,6 +853,7 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
     view: 'home',      // home | explore | parks | detail
     q: '',
     tag: '全部',
+    month: null,       // 按"几月去看它"筛选（null = 不限）
     plantId: null,
     tab: 'know',
     pending: null,     // 断网时用于重试
@@ -858,6 +886,13 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
     var hay = [p.nameCn, p.nameLatin, p.family, p.genus, p.lifeForm, p.hook]
       .concat(p.tags).join(' ').toLowerCase();
     return hay.indexOf(s) >= 0;
+  }
+
+  /* 按最佳观赏月份筛选：用物候里的 best 区间判断 */
+  function matchMonth(p, m) {
+    if (!m) return true;
+    var b = p.phenology.best;
+    return m >= b[0] && m <= b[1];
   }
 
   /* ---------- 卡片 ---------- */
@@ -933,7 +968,7 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
   /* ---------- 探索 ---------- */
   function viewExplore() {
     var list = PLANTS.filter(function (p) {
-      return matchTags(p, state.tag) && matchQuery(p, state.q);
+      return matchTags(p, state.tag) && matchQuery(p, state.q) && matchMonth(p, state.month);
     });
 
     var chips = TAGS.map(function (t) {
@@ -941,14 +976,27 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
         (state.tag === t ? 'true' : 'false') + '">' + esc(t) + '</button>';
     }).join('');
 
+    // 「几月去看它」——首页题记里承诺过的事，必须能真的做到
+    var monthChips = '';
+    for (var m = 1; m <= 12; m++) {
+      monthChips += '<button class="chip" data-month="' + m + '" aria-pressed="' +
+        (state.month === m ? 'true' : 'false') + '" aria-label="' + m + ' 月最佳观赏">' + m + '</button>';
+    }
+    monthChips += '<button class="chip chip-clear" data-month="all" aria-pressed="' +
+      (state.month === null ? 'true' : 'false') + '">不限</button>';
+
     var body;
     if (!list.length) {
+      var hint = state.month
+        ? '这个月没有推荐的植物，或者和搜索词、标签冲突了。'
+        : '换个写法试试：中文名、拉丁名，或"观花""秋色"这类关键词。';
       body = '' +
         '<div class="state">' +
           '<p class="state-title">没有找到这个植物</p>' +
-          '<p class="state-desc">换个写法试试：中文名、拉丁名，或"观花""秋色"这类关键词。</p>' +
+          '<p class="state-desc">' + esc(hint) + '</p>' +
           '<div class="state-actions">' +
-            '<button class="btn" data-suggest="银杏">试试「银杏」</button>' +
+            (state.month ? '<button class="btn" data-month="all">取消月份限制</button>' : '') +
+            '<button class="btn' + (state.month ? ' btn-ghost' : '') + '" data-suggest="银杏">试试「银杏」</button>' +
             '<button class="btn btn-ghost" data-reset="1">清空条件</button>' +
           '</div>' +
         '</div>';
@@ -956,17 +1004,22 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
       body = '<div class="grid">' + list.map(plantCard).join('') + '</div>';
     }
 
+    var note = list.length + ' 条结果' + (state.month ? ' · ' + state.month + ' 月' : '');
+
     return '' +
       '<div class="view">' +
         '<div class="sec-head">' +
           '<h2 class="sec-title">探索</h2>' +
-          '<span class="sec-note">' + list.length + ' 条结果</span>' +
+          '<span class="sec-note">' + note + '</span>' +
         '</div>' +
         '<div class="head-search" style="max-width:420px">' +
           '<input id="q-list" type="search" value="' + esc(state.q) +
           '" placeholder="搜索中文名 / 拉丁名 / 关键词" aria-label="在结果中搜索">' +
         '</div>' +
         '<div class="filters" role="group" aria-label="按类别筛选">' + chips + '</div>' +
+        '<div class="filters months" role="group" aria-label="按最佳观赏月份筛选">' +
+          '<span class="filter-label">几月去看它</span>' + monthChips +
+        '</div>' +
         body +
       '</div>';
   }
@@ -1210,7 +1263,7 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
 
   /* ---------- 事件委托 ---------- */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('[data-go],[data-plant],[data-tag],[data-tab],[data-retry],[data-park],[data-suggest],[data-reset]') : null;
+    var t = e.target.closest ? e.target.closest('[data-go],[data-plant],[data-tag],[data-month],[data-tab],[data-retry],[data-park],[data-suggest],[data-reset]') : null;
     if (!t) return;
 
     if (t.hasAttribute('data-go')) {
@@ -1219,6 +1272,13 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
     }
     if (t.hasAttribute('data-plant')) {
       navigate({ view: 'detail', plantId: t.getAttribute('data-plant') });
+      return;
+    }
+    if (t.hasAttribute('data-month')) {
+      var mv = t.getAttribute('data-month');
+      state.month = (mv === 'all') ? null : parseInt(mv, 10);
+      state.view = 'explore';
+      render();
       return;
     }
     if (t.hasAttribute('data-tag')) {
@@ -1244,7 +1304,7 @@ body.booted .view{ animation:fadeUp 220ms var(--ease) both; }
       return;
     }
     if (t.hasAttribute('data-reset')) {
-      state.q = ''; state.tag = '全部';
+      state.q = ''; state.tag = '全部'; state.month = null;
       if (qTop) qTop.value = '';
       render();
       return;
